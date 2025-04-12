@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from dataset.cifar10 import DataLoader
 from itertools import product
 from tnet.neural_network import NeuralNetwork
+import os
 
 class Trainer:
     def __init__(self, model, learning_rate: float, reg_lambda: float, 
@@ -156,7 +157,7 @@ class Trainer:
         
         plt.tight_layout()
         plt.savefig('training_curves.png')
-        plt.show()
+        plt.close()
     
     def visualize_weights(self):
         W1 = self.model.weights['W1']
@@ -177,7 +178,7 @@ class Trainer:
         
         plt.tight_layout()
         plt.savefig('weights_visualization.png')
-        plt.show()
+        plt.close()
 
 class Tester:
     def __init__(self, model_path: str):
@@ -206,23 +207,23 @@ class HyperparameterSearch:
     
     def search(self, param_grid: Dict[str, List], epochs: int, batch_size: int) -> Dict[str, float]:
         results = {}
-        X_train, y_train, X_val, y_val, _, _ = self.data_loader.load_cifar10('cifar-10-batches-py')
+        X_train, y_train, X_val, y_val, X_test, y_test = self.data_loader.load_cifar10('cifar-10-batches-py')
         for params in self._generate_param_combinations(param_grid):
             model = NeuralNetwork(3072, params['h1_size'], params['h2_size'], 10)
             trainer = Trainer(
                 model=model,
                 learning_rate=params['lr'],
                 reg_lambda=params['reg'],
-                lr_decay=0.95,  # Fixed from paper's baseline
-                save_path=f"model_{params['lr']}_{params['h1_size']}_{params['h2_size']}_{params['reg']}.pkl"
+                lr_decay=0.95,
+                save_path=f"models/model_{params['lr']}_{params['h1_size']}_{params['h2_size']}_{params['reg']}.pkl"
             )
             history = trainer.train(
                 X_train=X_train,
                 y_train=y_train,
                 X_val=X_val,
                 y_val=y_val,
-                X_test=X_train,  # Using train as placeholder for test to match original code
-                y_test=y_train,
+                X_test=X_test,  # Use actual test set
+                y_test=y_test,
                 epochs=epochs,
                 batch_size=batch_size,
                 test_interval=5,
@@ -245,7 +246,38 @@ class HyperparameterSearch:
         return [dict(zip(keys, v)) for v in product(*values)]
 
 def main():
-    data_loader = DataLoader(batch_size=64)
+    # Initialize data loader
+    data_loader = DataLoader(batch_size=64, augment=True)
+    X_train, y_train, X_val, y_val, X_test, y_test = data_loader.load_cifar10('cifar-10-batches-py')
+    
+    # Create models directory if it doesn't exist
+    os.makedirs('models', exist_ok=True)
+    
+    # Step 1: Train baseline model with visualization
+    print("Training baseline model...")
+    baseline_model = NeuralNetwork(3072, 256, 128, 10)
+    baseline_trainer = Trainer(
+        model=baseline_model,
+        learning_rate=0.01,
+        reg_lambda=0.001,
+        lr_decay=0.95,
+        save_path='models/baseline_model.pkl'
+    )
+    baseline_history = baseline_trainer.train(
+        X_train=X_train,
+        y_train=y_train,
+        X_val=X_val,
+        y_val=y_val,
+        X_test=X_test,
+        y_test=y_test,
+        epochs=200,
+        batch_size=64,
+        test_interval=5,
+        visualize=True  # Generate training_curves.png and weights_visualization.png
+    )
+    
+    # Step 2: Hyperparameter search
+    print("\nPerforming hyperparameter search...")
     param_grid = {
         'lr': [0.01, 0.005, 0.02],
         'hidden_sizes': [(256, 128), (512, 256), (128, 64)],
@@ -253,53 +285,20 @@ def main():
     }
     searcher = HyperparameterSearch(data_loader)
     results = searcher.search(param_grid, epochs=20, batch_size=64)
-    # data_loader = DataLoader(batch_size=64)
-    # X_train, y_train, X_val, y_val, X_test, y_test = data_loader.load_cifar10('cifar-10-batches-py')
     
-    # print("Dataset Statistics:")
-    # print(f"X_train - shape: {X_train.shape}, mean: {X_train.mean():.4f}, std: {X_train.std():.4f}")
-    # print(f"X_val   - shape: {X_val.shape}, mean: {X_val.mean():.4f}, std: {X_val.std():.4f}")
-    # print(f"X_test  - shape: {X_test.shape}, mean: {X_test.mean():.4f}, std: {X_test.std():.4f}")
-    # print(f"Training samples: {len(y_train)}, Validation samples: {len(y_val)}, Test samples: {len(y_test)}")
+    # Step 3: Find and test the best model
+    print("\nEvaluating best model...")
+    best_params = max(results, key=results.get)
+    best_val_acc = results[best_params]
+    best_lr, h1_size, h2_size, reg = [float(x.split('=')[1]) if '=' in x else int(x.split('=')[1]) 
+                                      for x in best_params.split(',')]
+    best_model_path = f"models/model_{best_lr}_{h1_size}_{h2_size}_{reg}.pkl"
     
-    # model = NeuralNetwork(input_size=3072, hidden1_size=256, hidden2_size=128, output_size=10)
-
-    # # Initialize trainer with pre-trained weights
-    # trainer = Trainer(
-    #     model=model,
-    #     learning_rate=0.01, 
-    #     reg_lambda=0.001,
-    #     lr_decay=0.95,
-    #     save_path='best_model.pkl',
-    #     load_path='best_model_0409.pkl'  # Load the pre-trained model
-    # )
-    
-    # # Train for 20- more epochs
-    # print('Start training...')
-    # history = trainer.train(
-    #     X_train=X_train,
-    #     y_train=y_train,
-    #     X_val=X_val,
-    #     y_val=y_val,
-    #     X_test=X_test,
-    #     y_test=y_test,
-    #     epochs=200,
-    #     batch_size=64,
-    #     test_interval=5,
-    #     visualize=True
-    # )
-    
-    # # Print final results
-    # print("\nTraining completed!")
-    # print(f"Final train accuracy: {history['train_acc'][-1]:.4f}")
-    # print(f"Final validation accuracy: {history['val_acc'][-1]:.4f}")
-    # print(f"Final test accuracy: {history['test_acc'][-1]:.4f}")
-    # print(f"Best validation accuracy achieved: {trainer.best_val_acc:.4f}")
-    
-    # # Test the best saved model
-    # tester = Tester('best_model.pkl')
-    # final_test_acc = tester.test(X_test, y_test)
-    # print(f"\nVerification - Test accuracy with best saved model: {final_test_acc:.4f}")
+    tester = Tester(best_model_path)
+    test_acc = tester.test(X_test, y_test)
+    print(f"Best model parameters: {best_params}")
+    print(f"Validation accuracy: {best_val_acc:.4f}")
+    print(f"Test accuracy: {test_acc:.4f}")
 
 if __name__ == "__main__":
     main()
