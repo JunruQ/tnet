@@ -16,3 +16,11 @@ This repository contains a from-scratch implementation of a three-layer fully-co
 - NumPy
 - Matplotlib
 - CIFAR-10 dataset (download from [https://www.cs.toronto.edu/~kriz/cifar.html](https://www.cs.toronto.edu/~kriz/cifar.html))
+
+## Usage
+
+```bash
+python main.py
+```
+
+All features are written in the `main.py` file. The code is organized into functions for clarity and modularity. The main function orchestrates the training, validation, and testing processes.
